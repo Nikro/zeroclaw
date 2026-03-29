@@ -1017,7 +1017,11 @@ fn check_api_key_prefix(provider_name: &str, key: &str) -> Option<&'static str> 
         _ => return None, // Unknown format provider — skip
     };
 
-    if matches { None } else { Some(expected) }
+    if matches {
+        None
+    } else {
+        Some(expected)
+    }
 }
 
 fn parse_custom_provider_url(
@@ -1058,7 +1062,12 @@ pub fn create_provider_with_options(
         "openai-codex" | "openai_codex" | "codex" => Ok(Box::new(
             openai_codex::OpenAiCodexProvider::new(options, api_key)?,
         )),
-        _ => create_provider_with_url_and_options(name, api_key, None, options),
+        _ => create_provider_with_url_and_options(
+            name,
+            api_key,
+            options.provider_api_url.as_deref(),
+            options,
+        ),
     }
 }
 
@@ -2381,7 +2390,7 @@ pub(crate) mod test_util {
 
 #[cfg(test)]
 mod tests {
-    use super::test_util::{EnvGuard, env_lock};
+    use super::test_util::{env_lock, EnvGuard};
     use super::*;
 
     #[test]
