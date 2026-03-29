@@ -1300,6 +1300,7 @@ mod tests {
                 max_iterations: 10,
                 timeout_secs: None,
                 agentic_timeout_secs: None,
+                max_context_tokens: None,
                 skills_directory: None,
                 memory_namespace: None,
             },
