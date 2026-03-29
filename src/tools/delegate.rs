@@ -5,8 +5,8 @@ use crate::config::{DelegateAgentConfig, DelegateToolConfig};
 use crate::memory::{Memory, NamespacedMemory};
 use crate::observability::traits::{Observer, ObserverEvent, ObserverMetric};
 use crate::providers::{self, ChatMessage, Provider};
-use crate::security::SecurityPolicy;
 use crate::security::policy::ToolOperation;
+use crate::security::SecurityPolicy;
 use async_trait::async_trait;
 use parking_lot::RwLock;
 use serde_json::json;
@@ -214,6 +214,13 @@ impl DelegateTool {
     /// Directory where background delegate results are stored.
     fn results_dir(&self) -> PathBuf {
         self.workspace_dir.join("delegate_results")
+    }
+
+    /// Cheap token estimate for delegate prompts.
+    fn estimate_prompt_tokens(system_prompt: Option<&str>, user_prompt: &str) -> usize {
+        let estimate_text = |text: &str| text.chars().count().div_ceil(4) + 4;
+        let system = system_prompt.map_or(0, estimate_text);
+        system + estimate_text(user_prompt)
     }
 
     /// Validate that a user-provided task_id is a valid UUID to prevent
@@ -482,6 +489,19 @@ impl DelegateTool {
         let enriched_system_prompt =
             self.build_enriched_system_prompt(agent_config, &[], &self.workspace_dir);
         let system_prompt_ref = enriched_system_prompt.as_deref();
+
+        if let Some(context_budget) = agent_config.max_context_tokens.filter(|value| *value > 0) {
+            let estimated = Self::estimate_prompt_tokens(system_prompt_ref, &full_prompt);
+            if estimated > context_budget {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(format!(
+                        "Agent '{agent_name}' estimated prompt size ({estimated} tokens) exceeds configured max_context_tokens ({context_budget})"
+                    )),
+                });
+            }
+        }
 
         // Wrap the provider call in a timeout to prevent indefinite blocking
         let timeout_secs = agent_config
@@ -1169,8 +1189,8 @@ impl DelegateTool {
                 None,
                 None,
                 &crate::config::PacingConfig::default(),
-                0,    // max_tool_result_chars: inherit from parent config in future
-                0,    // context_token_budget: 0 = disabled for subagents
+                0, // max_tool_result_chars: inherit from parent config in future
+                agent_config.max_context_tokens.unwrap_or(0),
                 None, // shared_budget: TODO thread from parent in future
             ),
         )
@@ -1285,6 +1305,7 @@ mod tests {
                 max_iterations: 10,
                 timeout_secs: None,
                 agentic_timeout_secs: None,
+                max_context_tokens: None,
                 skills_directory: None,
                 memory_namespace: None,
             },
@@ -1303,6 +1324,7 @@ mod tests {
                 max_iterations: 10,
                 timeout_secs: None,
                 agentic_timeout_secs: None,
+                max_context_tokens: None,
                 skills_directory: None,
                 memory_namespace: None,
             },
@@ -1460,6 +1482,7 @@ mod tests {
             max_iterations,
             timeout_secs: None,
             agentic_timeout_secs: None,
+            max_context_tokens: None,
             skills_directory: None,
             memory_namespace: None,
         }
@@ -1576,6 +1599,7 @@ mod tests {
                 max_iterations: 10,
                 timeout_secs: None,
                 agentic_timeout_secs: None,
+                max_context_tokens: None,
                 skills_directory: None,
                 memory_namespace: None,
             },
@@ -1643,13 +1667,11 @@ mod tests {
             .await
             .unwrap();
         assert!(!result.success);
-        assert!(
-            result
-                .error
-                .as_deref()
-                .unwrap_or("")
-                .contains("read-only mode")
-        );
+        assert!(result
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("read-only mode"));
     }
 
     #[tokio::test]
@@ -1664,13 +1686,11 @@ mod tests {
             .await
             .unwrap();
         assert!(!result.success);
-        assert!(
-            result
-                .error
-                .as_deref()
-                .unwrap_or("")
-                .contains("Rate limit exceeded")
-        );
+        assert!(result
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("Rate limit exceeded"));
     }
 
     #[tokio::test]
@@ -1690,6 +1710,7 @@ mod tests {
                 max_iterations: 10,
                 timeout_secs: None,
                 agentic_timeout_secs: None,
+                max_context_tokens: None,
                 skills_directory: None,
                 memory_namespace: None,
             },
@@ -1705,13 +1726,11 @@ mod tests {
             .unwrap();
 
         assert!(!result.success);
-        assert!(
-            result
-                .error
-                .as_deref()
-                .unwrap_or("")
-                .contains("Failed to create provider")
-        );
+        assert!(result
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("Failed to create provider"));
     }
 
     #[tokio::test]
@@ -1731,6 +1750,7 @@ mod tests {
                 max_iterations: 10,
                 timeout_secs: None,
                 agentic_timeout_secs: None,
+                max_context_tokens: None,
                 skills_directory: None,
                 memory_namespace: None,
             },
@@ -1746,13 +1766,11 @@ mod tests {
             .unwrap();
 
         assert!(!result.success);
-        assert!(
-            result
-                .error
-                .as_deref()
-                .unwrap_or("")
-                .contains("Failed to create provider")
-        );
+        assert!(result
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("Failed to create provider"));
     }
 
     #[test]
@@ -1784,13 +1802,11 @@ mod tests {
             .unwrap();
 
         assert!(!result.success);
-        assert!(
-            result
-                .error
-                .as_deref()
-                .unwrap_or("")
-                .contains("allowed_tools is empty")
-        );
+        assert!(result
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("allowed_tools is empty"));
     }
 
     #[tokio::test]
@@ -1809,13 +1825,11 @@ mod tests {
             .unwrap();
 
         assert!(!result.success);
-        assert!(
-            result
-                .error
-                .as_deref()
-                .unwrap_or("")
-                .contains("no executable tools")
-        );
+        assert!(result
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("no executable tools"));
     }
 
     #[tokio::test]
@@ -1857,13 +1871,11 @@ mod tests {
             .unwrap();
 
         assert!(!result.success);
-        assert!(
-            result
-                .error
-                .as_deref()
-                .unwrap_or("")
-                .contains("no executable tools")
-        );
+        assert!(result
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("no executable tools"));
     }
 
     #[tokio::test]
@@ -1879,13 +1891,11 @@ mod tests {
             .unwrap();
 
         assert!(!result.success);
-        assert!(
-            result
-                .error
-                .as_deref()
-                .unwrap_or("")
-                .contains("maximum tool iterations (2)")
-        );
+        assert!(result
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("maximum tool iterations (2)"));
     }
 
     #[tokio::test]
@@ -1901,13 +1911,11 @@ mod tests {
             .unwrap();
 
         assert!(!result.success);
-        assert!(
-            result
-                .error
-                .as_deref()
-                .unwrap_or("")
-                .contains("provider boom")
-        );
+        assert!(result
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("provider boom"));
     }
 
     /// MCP tools pushed into the shared parent_tools handle after DelegateTool
@@ -2020,6 +2028,7 @@ mod tests {
             max_iterations: 10,
             timeout_secs: None,
             agentic_timeout_secs: None,
+            max_context_tokens: None,
             skills_directory: None,
             memory_namespace: None,
         };
@@ -2074,6 +2083,7 @@ mod tests {
             max_iterations: 10,
             timeout_secs: None,
             agentic_timeout_secs: None,
+            max_context_tokens: None,
             skills_directory: None,
             memory_namespace: None,
         };
@@ -2145,6 +2155,7 @@ mod tests {
             max_iterations: 10,
             timeout_secs: None,
             agentic_timeout_secs: None,
+            max_context_tokens: None,
             skills_directory: None,
             memory_namespace: None,
         };
@@ -2174,6 +2185,7 @@ mod tests {
             max_iterations: 10,
             timeout_secs: None,
             agentic_timeout_secs: None,
+            max_context_tokens: None,
             skills_directory: None,
             memory_namespace: None,
         };
@@ -2208,6 +2220,7 @@ mod tests {
             max_iterations: 10,
             timeout_secs: Some(60),
             agentic_timeout_secs: Some(600),
+            max_context_tokens: None,
             skills_directory: None,
             memory_namespace: None,
         };
@@ -2264,6 +2277,7 @@ mod tests {
                 max_iterations: 10,
                 timeout_secs: Some(0),
                 agentic_timeout_secs: None,
+                max_context_tokens: None,
                 skills_directory: None,
                 memory_namespace: None,
             },
@@ -2292,6 +2306,7 @@ mod tests {
                 max_iterations: 10,
                 timeout_secs: None,
                 agentic_timeout_secs: Some(0),
+                max_context_tokens: None,
                 skills_directory: None,
                 memory_namespace: None,
             },
@@ -2320,6 +2335,7 @@ mod tests {
                 max_iterations: 10,
                 timeout_secs: Some(7200),
                 agentic_timeout_secs: None,
+                max_context_tokens: None,
                 skills_directory: None,
                 memory_namespace: None,
             },
@@ -2348,6 +2364,7 @@ mod tests {
                 max_iterations: 10,
                 timeout_secs: None,
                 agentic_timeout_secs: Some(5000),
+                max_context_tokens: None,
                 skills_directory: None,
                 memory_namespace: None,
             },
@@ -2376,6 +2393,7 @@ mod tests {
                 max_iterations: 10,
                 timeout_secs: Some(3600),
                 agentic_timeout_secs: Some(3600),
+                max_context_tokens: None,
                 skills_directory: None,
                 memory_namespace: None,
             },
@@ -2400,6 +2418,7 @@ mod tests {
                 max_iterations: 10,
                 timeout_secs: None,
                 agentic_timeout_secs: None,
+                max_context_tokens: None,
                 skills_directory: None,
                 memory_namespace: None,
             },
@@ -2433,6 +2452,7 @@ mod tests {
             max_iterations: 10,
             timeout_secs: None,
             agentic_timeout_secs: None,
+            max_context_tokens: None,
             skills_directory: Some("skills/code-review".to_string()),
             memory_namespace: None,
         };
@@ -2480,6 +2500,7 @@ mod tests {
             max_iterations: 10,
             timeout_secs: None,
             agentic_timeout_secs: None,
+            max_context_tokens: None,
             skills_directory: None,
             memory_namespace: None,
         };

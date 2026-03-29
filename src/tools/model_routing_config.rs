@@ -3,7 +3,7 @@ use crate::config::{ClassificationRule, Config, DelegateAgentConfig, ModelRouteC
 use crate::security::SecurityPolicy;
 use crate::util::MaybeSet;
 use async_trait::async_trait;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::fs;
 use std::sync::Arc;
@@ -707,6 +707,7 @@ impl ModelRoutingConfigTool {
                 max_iterations: DEFAULT_AGENT_MAX_ITERATIONS,
                 timeout_secs: None,
                 agentic_timeout_secs: None,
+                max_context_tokens: None,
                 skills_directory: None,
                 memory_namespace: None,
             });

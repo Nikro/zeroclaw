@@ -582,6 +582,11 @@ pub struct DelegateAgentConfig {
     /// When `None`, falls back to `[delegate].agentic_timeout_secs` (default: 300).
     #[serde(default)]
     pub agentic_timeout_secs: Option<u64>,
+    /// Optional context token budget for this delegate agent.
+    /// When set, non-agentic calls fail early if estimated prompt tokens exceed
+    /// this budget; agentic calls pass this value into loop context trimming.
+    #[serde(default)]
+    pub max_context_tokens: Option<usize>,
     /// Optional skills directory path (relative to workspace root) for scoped skill loading.
     /// When unset or empty, the sub-agent falls back to the default workspace `skills/` directory.
     #[serde(default)]
@@ -9587,9 +9592,9 @@ impl Config {
             &self.security.otp.gated_domains,
             &self.security.otp.gated_domain_categories,
         )
-        .with_context(
-            || "Invalid security.otp.gated_domains or security.otp.gated_domain_categories",
-        )?;
+        .with_context(|| {
+            "Invalid security.otp.gated_domains or security.otp.gated_domain_categories"
+        })?;
         if self.security.estop.state_file.trim().is_empty() {
             anyhow::bail!("security.estop.state_file must not be empty");
         }
@@ -10042,6 +10047,11 @@ impl Config {
                     anyhow::bail!(
                         "agents.{name}.agentic_timeout_secs exceeds max {MAX_DELEGATE_TIMEOUT_SECS}"
                     );
+                }
+            }
+            if let Some(tokens) = agent.max_context_tokens {
+                if tokens == 0 {
+                    anyhow::bail!("agents.{name}.max_context_tokens must be greater than 0");
                 }
             }
         }
@@ -11031,8 +11041,8 @@ mod tests {
     use tempfile::TempDir;
     use tokio::sync::{Mutex, MutexGuard};
     use tokio::test;
-    use tokio_stream::StreamExt;
     use tokio_stream::wrappers::ReadDirStream;
+    use tokio_stream::StreamExt;
 
     // ── Tilde expansion ───────────────────────────────────────
 
@@ -12126,12 +12136,10 @@ default_temperature = 0.7
 
         let contents = tokio::fs::read_to_string(&config_path).await.unwrap();
         let loaded: Config = toml::from_str(&contents).unwrap();
-        assert!(
-            loaded
-                .api_key
-                .as_deref()
-                .is_some_and(crate::security::SecretStore::is_encrypted)
-        );
+        assert!(loaded
+            .api_key
+            .as_deref()
+            .is_some_and(crate::security::SecretStore::is_encrypted));
         let store = crate::security::SecretStore::new(&dir, true);
         let decrypted = store.decrypt(loaded.api_key.as_deref().unwrap()).unwrap();
         assert_eq!(decrypted, "sk-roundtrip");
@@ -12182,6 +12190,7 @@ default_temperature = 0.7
                 max_iterations: 10,
                 timeout_secs: None,
                 agentic_timeout_secs: None,
+                max_context_tokens: None,
                 skills_directory: None,
                 memory_namespace: None,
             },
@@ -12243,24 +12252,20 @@ default_temperature = 0.7
             &feishu.app_secret
         ));
         assert_eq!(store.decrypt(&feishu.app_secret).unwrap(), "feishu-secret");
-        assert!(
-            feishu
-                .encrypt_key
-                .as_deref()
-                .is_some_and(crate::security::SecretStore::is_encrypted)
-        );
+        assert!(feishu
+            .encrypt_key
+            .as_deref()
+            .is_some_and(crate::security::SecretStore::is_encrypted));
         assert_eq!(
             store
                 .decrypt(feishu.encrypt_key.as_deref().unwrap())
                 .unwrap(),
             "feishu-encrypt"
         );
-        assert!(
-            feishu
-                .verification_token
-                .as_deref()
-                .is_some_and(crate::security::SecretStore::is_encrypted)
-        );
+        assert!(feishu
+            .verification_token
+            .as_deref()
+            .is_some_and(crate::security::SecretStore::is_encrypted));
         assert_eq!(
             store
                 .decrypt(feishu.verification_token.as_deref().unwrap())
@@ -13734,11 +13739,9 @@ requires_openai_auth = true
         };
 
         let error = config.validate().expect_err("expected validation failure");
-        assert!(
-            error
-                .to_string()
-                .contains("wire_api must be one of: responses, chat_completions")
-        );
+        assert!(error
+            .to_string()
+            .contains("wire_api must be one of: responses, chat_completions"));
     }
 
     #[test]
@@ -14604,11 +14607,9 @@ default_model = "persisted-profile"
             std::env::var("HTTPS_PROXY").ok().as_deref(),
             Some("http://127.0.0.1:7891")
         );
-        assert!(
-            std::env::var("NO_PROXY")
-                .ok()
-                .is_some_and(|value| value.contains("localhost"))
-        );
+        assert!(std::env::var("NO_PROXY")
+            .ok()
+            .is_some_and(|value| value.contains("localhost")));
 
         clear_proxy_env_test_vars();
     }
@@ -14628,8 +14629,8 @@ default_model = "persisted-profile"
     }
 
     #[test]
-    async fn google_workspace_allowed_operations_reject_duplicate_service_resource_sub_resource_entries()
-     {
+    async fn google_workspace_allowed_operations_reject_duplicate_service_resource_sub_resource_entries(
+    ) {
         let mut config = Config::default();
         config.google_workspace.allowed_operations = vec![
             GoogleWorkspaceAllowedOperation {
