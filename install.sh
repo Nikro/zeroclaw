@@ -343,7 +343,7 @@ should_attempt_prebuilt_for_resources() {
 
 resolve_asset_url() {
   local asset_name="$1"
-  local api_url="https://api.github.com/repos/zeroclaw-labs/zeroclaw/releases"
+  local api_url="https://api.github.com/repos/${ZEROCLAW_RELEASE_REPO}/releases"
   local releases_json download_url
 
   # Fetch up to 10 recent releases (includes prereleases) and find the first
@@ -398,7 +398,7 @@ install_prebuilt_binary() {
   # that actually contains the asset, then fall back to /releases/latest/.
   archive_url="$(resolve_asset_url "$asset_name" || true)"
   if [[ -z "$archive_url" ]]; then
-    archive_url="https://github.com/zeroclaw-labs/zeroclaw/releases/latest/download/${asset_name}"
+    archive_url="https://github.com/${ZEROCLAW_RELEASE_REPO}/releases/latest/download/${asset_name}"
   fi
 
   temp_dir="$(mktemp -d -t zeroclaw-prebuilt-XXXXXX)"
@@ -1159,6 +1159,7 @@ SKIP_BUILD=false
 SKIP_INSTALL=false
 PREBUILT_INSTALLED=false
 CONTAINER_CLI="${ZEROCLAW_CONTAINER_CLI:-docker}"
+ZEROCLAW_RELEASE_REPO="${ZEROCLAW_RELEASE_REPO:-zeroclaw-labs/zeroclaw}"
 API_KEY="${ZEROCLAW_API_KEY:-}"
 PROVIDER="${ZEROCLAW_PROVIDER:-openrouter}"
 MODEL="${ZEROCLAW_MODEL:-}"

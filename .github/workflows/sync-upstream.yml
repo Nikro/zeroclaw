@@ -1,0 +1,40 @@
+name: Sync Upstream
+
+on:
+  schedule:
+    - cron: '0 0 * * 0' # Weekly
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    name: Sync with Upstream
+    runs-on: ubuntu-latest
+    env:
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Sync upstream
+        run: |
+          UPSTREAM_URL="https://github.com/zeroclaw-labs/zeroclaw.git"
+          REMOTE_NAME="upstream"
+
+          if ! git remote | grep -q "^$REMOTE_NAME$"; then
+            git remote add "$REMOTE_NAME" "$UPSTREAM_URL"
+          fi
+
+          git fetch "$REMOTE_NAME"
+
+          # Ensure we're on the default branch for this fork
+          git checkout "$DEFAULT_BRANCH"
+
+          # Merge master from upstream into the fork default branch
+          git merge "$REMOTE_NAME/master" --no-edit
+
+          # Push changes back to the fork default branch
+          git -c user.name='github-actions[bot]' -c user.email='github-actions[bot]@users.noreply.github.com' push origin "$DEFAULT_BRANCH"

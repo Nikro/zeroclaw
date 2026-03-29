@@ -1,0 +1,57 @@
+name: Build Bippy ARM64
+
+on:
+  push:
+    branches: [master, main]
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * 0' # Weekly
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  CARGO_BUILD_JOBS: 2
+
+jobs:
+  build:
+    name: Build ARM64
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.93.0
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libudev-dev pkg-config libssl-dev
+
+      - name: Ensure web/dist placeholder exists
+        run: mkdir -p web/dist && touch web/dist/.gitkeep
+
+      - name: Build release
+        run: |
+          cargo build --release --locked --features "channel-nostr,channel-lark,observability-prometheus,observability-otel,sandbox-landlock,sandbox-bubblewrap,rag-pdf,skill-creation"
+
+      - name: Prepare binary
+        run: |
+          cp target/release/zeroclaw zeroclaw-aarch64-linux
+
+      - name: Create Release
+        id: create_release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG_NAME="bippy-$(date -u +'%Y%m%d-%H%M%S')"
+          gh release create "$TAG_NAME" \
+            --title "Bippy Release $TAG_NAME" \
+            --notes "Automated ARM64 release with OTEL observability." \
+            --latest \
+            zeroclaw-aarch64-linux
