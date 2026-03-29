@@ -38,7 +38,7 @@ jobs:
 
       - name: Build release
         run: |
-          cargo build --release --locked --features "channel-nostr,channel-lark,observability-prometheus,observability-otel,sandbox-landlock,sandbox-bubblewrap,rag-pdf,skill-creation"
+          cargo build --release --locked --features "channel-nostr,channel-lark,observability-prometheus,sandbox-landlock,sandbox-bubblewrap,rag-pdf,skill-creation"
 
       - name: Prepare binary
         run: |
@@ -52,6 +52,6 @@ jobs:
           TAG_NAME="bippy-$(date -u +'%Y%m%d-%H%M%S')"
           gh release create "$TAG_NAME" \
             --title "Bippy Release $TAG_NAME" \
-            --notes "Automated ARM64 release with OTEL observability." \
+            --notes "Automated ARM64 release with Prometheus and JSONL observability." \
             --latest \
             zeroclaw-aarch64-linux
