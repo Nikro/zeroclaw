@@ -5,8 +5,8 @@ use crate::config::{DelegateAgentConfig, DelegateToolConfig};
 use crate::memory::{Memory, NamespacedMemory};
 use crate::observability::traits::{Observer, ObserverEvent, ObserverMetric};
 use crate::providers::{self, ChatMessage, Provider};
-use crate::security::SecurityPolicy;
 use crate::security::policy::ToolOperation;
+use crate::security::SecurityPolicy;
 use async_trait::async_trait;
 use parking_lot::RwLock;
 use serde_json::json;
@@ -73,6 +73,8 @@ pub struct DelegateTool {
     cancellation_token: CancellationToken,
     /// Optional memory instance for namespace isolation on delegate agents.
     memory: Option<Arc<dyn Memory>>,
+    /// Skill prompt injection verbosity for delegate-enriched system prompts.
+    skills_prompt_mode: crate::config::SkillsPromptInjectionMode,
 }
 
 impl DelegateTool {
@@ -107,6 +109,7 @@ impl DelegateTool {
             workspace_dir: PathBuf::new(),
             cancellation_token: CancellationToken::new(),
             memory: None,
+            skills_prompt_mode: crate::config::SkillsPromptInjectionMode::default(),
         }
     }
 
@@ -147,6 +150,7 @@ impl DelegateTool {
             workspace_dir: PathBuf::new(),
             cancellation_token: CancellationToken::new(),
             memory: None,
+            skills_prompt_mode: crate::config::SkillsPromptInjectionMode::default(),
         }
     }
 
@@ -165,6 +169,15 @@ impl DelegateTool {
     /// Attach global delegate tool configuration for default timeout values.
     pub fn with_delegate_config(mut self, config: DelegateToolConfig) -> Self {
         self.delegate_config = config;
+        self
+    }
+
+    /// Attach skills prompt injection mode for delegate system prompts.
+    pub fn with_skills_prompt_mode(
+        mut self,
+        mode: crate::config::SkillsPromptInjectionMode,
+    ) -> Self {
+        self.skills_prompt_mode = mode;
         self
     }
 
@@ -633,6 +646,7 @@ impl DelegateTool {
         let parent_tools = Arc::clone(&self.parent_tools);
         let multimodal_config = self.multimodal_config.clone();
         let delegate_config = self.delegate_config.clone();
+        let skills_prompt_mode = self.skills_prompt_mode;
         let workspace_dir = self.workspace_dir.clone();
         let child_token = self.cancellation_token.child_token();
         let task_id_clone = task_id.clone();
@@ -651,6 +665,7 @@ impl DelegateTool {
                 workspace_dir: workspace_dir.clone(),
                 cancellation_token: child_token.clone(),
                 memory: None,
+                skills_prompt_mode,
             };
 
             let args_inner = json!({
@@ -790,6 +805,7 @@ impl DelegateTool {
             let parent_tools = Arc::clone(&self.parent_tools);
             let multimodal_config = self.multimodal_config.clone();
             let delegate_config = self.delegate_config.clone();
+            let skills_prompt_mode = self.skills_prompt_mode;
             let workspace_dir = self.workspace_dir.clone();
             let cancellation_token = self.cancellation_token.child_token();
             let agent_name = agent_name.clone();
@@ -809,6 +825,7 @@ impl DelegateTool {
                     workspace_dir,
                     cancellation_token,
                     memory: None,
+                    skills_prompt_mode,
                 };
                 let result = Box::pin(inner.execute_sync(&agent_name, &prompt, &args_clone)).await;
                 (agent_name, result)
@@ -1048,7 +1065,7 @@ impl DelegateTool {
             model_name: &agent_config.model,
             tools: sub_tools,
             skills: &skills,
-            skills_prompt_mode: crate::config::SkillsPromptInjectionMode::Full,
+            skills_prompt_mode: self.skills_prompt_mode,
             identity_config: None,
             dispatcher_instructions: "",
             tool_descriptions: None,
@@ -1643,13 +1660,11 @@ mod tests {
             .await
             .unwrap();
         assert!(!result.success);
-        assert!(
-            result
-                .error
-                .as_deref()
-                .unwrap_or("")
-                .contains("read-only mode")
-        );
+        assert!(result
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("read-only mode"));
     }
 
     #[tokio::test]
@@ -1664,13 +1679,11 @@ mod tests {
             .await
             .unwrap();
         assert!(!result.success);
-        assert!(
-            result
-                .error
-                .as_deref()
-                .unwrap_or("")
-                .contains("Rate limit exceeded")
-        );
+        assert!(result
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("Rate limit exceeded"));
     }
 
     #[tokio::test]
@@ -1705,13 +1718,11 @@ mod tests {
             .unwrap();
 
         assert!(!result.success);
-        assert!(
-            result
-                .error
-                .as_deref()
-                .unwrap_or("")
-                .contains("Failed to create provider")
-        );
+        assert!(result
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("Failed to create provider"));
     }
 
     #[tokio::test]
@@ -1746,13 +1757,11 @@ mod tests {
             .unwrap();
 
         assert!(!result.success);
-        assert!(
-            result
-                .error
-                .as_deref()
-                .unwrap_or("")
-                .contains("Failed to create provider")
-        );
+        assert!(result
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("Failed to create provider"));
     }
 
     #[test]
@@ -1784,13 +1793,11 @@ mod tests {
             .unwrap();
 
         assert!(!result.success);
-        assert!(
-            result
-                .error
-                .as_deref()
-                .unwrap_or("")
-                .contains("allowed_tools is empty")
-        );
+        assert!(result
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("allowed_tools is empty"));
     }
 
     #[tokio::test]
@@ -1809,13 +1816,11 @@ mod tests {
             .unwrap();
 
         assert!(!result.success);
-        assert!(
-            result
-                .error
-                .as_deref()
-                .unwrap_or("")
-                .contains("no executable tools")
-        );
+        assert!(result
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("no executable tools"));
     }
 
     #[tokio::test]
@@ -1857,13 +1862,11 @@ mod tests {
             .unwrap();
 
         assert!(!result.success);
-        assert!(
-            result
-                .error
-                .as_deref()
-                .unwrap_or("")
-                .contains("no executable tools")
-        );
+        assert!(result
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("no executable tools"));
     }
 
     #[tokio::test]
@@ -1879,13 +1882,11 @@ mod tests {
             .unwrap();
 
         assert!(!result.success);
-        assert!(
-            result
-                .error
-                .as_deref()
-                .unwrap_or("")
-                .contains("maximum tool iterations (2)")
-        );
+        assert!(result
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("maximum tool iterations (2)"));
     }
 
     #[tokio::test]
@@ -1901,13 +1902,11 @@ mod tests {
             .unwrap();
 
         assert!(!result.success);
-        assert!(
-            result
-                .error
-                .as_deref()
-                .unwrap_or("")
-                .contains("provider boom")
-        );
+        assert!(result
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("provider boom"));
     }
 
     /// MCP tools pushed into the shared parent_tools handle after DelegateTool
